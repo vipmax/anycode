@@ -19,7 +19,8 @@ import {
 
 import {
     Selection, getSelection,
-    selectionDirection, setSelectionFromOffsets
+    selectionDirection, setSelectionFromOffsets,
+    resolveAbsoluteOffset
 } from "./selection";
 
 import './styles.css';
@@ -141,6 +142,15 @@ export class AnycodeEditor {
         
         this.handleSelectionChange = this.handleSelectionChange.bind(this);
         document.addEventListener('selectionchange', this.handleSelectionChange);
+        
+        this.handleMouseDown = this.handleMouseDown.bind(this);
+        this.codeContent.addEventListener('mousedown', this.handleMouseDown);
+
+        this.handleMouseUp = this.handleMouseUp.bind(this);
+        this.codeContent.addEventListener('mouseup', this.handleMouseUp);
+        
+        this.handleMouseMove = this.handleMouseMove.bind(this);
+        this.codeContent.addEventListener('mousemove', this.handleMouseMove);
     }
 
     private createSpacer(height: number): HTMLDivElement {
@@ -322,31 +332,6 @@ export class AnycodeEditor {
         }
     }
     
-    private handleClick(event: MouseEvent): void {
-        
-        if (this.selection && this.selection.nonEmpty()) {
-            return;
-        }
-        
-        event.preventDefault();
-        const sel = window.getSelection();
-        const row = getMouseRow(event, sel);
-        if (row === null) return;
-      
-        const lineDiv = this.getLine(row);
-        if (!lineDiv) return;
-      
-        const chunks = Array.from(lineDiv.childNodes);
-        const col = getMouseCol(event, sel, chunks);
-        
-        if (col === null) return;
-
-        let offset = this.code.getOffset(row, col);
-        this.offset = offset;
-        console.log('click', row, col, offset);
-        this.updateCursor();
-    }
-    
     public renderChanges() {
         console.time('updateChanges');
 
@@ -452,16 +437,42 @@ export class AnycodeEditor {
         span.textContent = node.text;
         return span;
     }
+    
+    private handleClick(event: MouseEvent): void {
+        console.log("handleClick ", this.selection);
+        if (this.selection && this.selection.nonEmpty()) {
+            return;
+        }
+        
+        event.preventDefault();
+        const sel = window.getSelection();
+        const row = getMouseRow(event, sel);
+        if (row === null) return;
+      
+        const lineDiv = this.getLine(row);
+        if (!lineDiv) return;
+      
+        const chunks = Array.from(lineDiv.childNodes);
+        const col = getMouseCol(event, sel, chunks);
+        
+        if (col === null) return;
 
+        let offset = this.code.getOffset(row, col);
+        this.offset = offset;
+        console.log('click', row, col, offset);
+        this.updateCursor();
+    }
+    
     private handleSelectionChange(e: Event) {
+        console.log("");
         if (this.ignoreNextSelection) {
-            // console.log('ignoreNextSelection');
+            console.log('ignoreNextSelection');
             this.ignoreNextSelection = false;
             return;
         }
 
         const selectionPos = getSelection();
-
+        
         if (!selectionPos) {
             this.selection = null;
             return;
@@ -476,7 +487,7 @@ export class AnycodeEditor {
         let selection = new Selection(
             selectionStartOffset, selectionEndOffset
         );
-        // console.log('SELECTION = ', selection);
+        console.log('SELECTION = ', selection);
         
         const direction = selectionDirection(window.getSelection()!);
 
@@ -493,21 +504,101 @@ export class AnycodeEditor {
         let sel = new Selection(this.anchorOffset!, this.offset);
         console.log('sel', sel);
 
-        this.offset = direction === 'forward' ? selection!.end : selection!.start;
+        // this.offset = direction === 'forward' ? selection!.end : selection!.start;
 
-        if (!this.anchorOffset && selection) {
-            if (direction === 'forward') sel = new Selection(selection.start, this.offset);
-            else sel = new Selection(this.offset, selection.end);
-        }
+        // if (!this.anchorOffset && selection) {
+        //     if (direction === 'forward') sel = new Selection(selection.start, this.offset);
+        //     else sel = new Selection(this.offset, selection.end);
+        // }
 
-        if ((sel.isEmpty() && !selection.isEmpty()) || (!sel.isEmpty() && selection.bigger(sel))) {
-            sel = selection;
-            this.offset = sel.max();
-            // console.log('BIGGER = ', sel);
-        }
+        // if ((sel.isEmpty() && !selection.isEmpty()) || (!sel.isEmpty() && selection.bigger(sel))) {
+        //     sel = selection;
+        //     this.offset = sel.max();
+        //     // console.log('BIGGER = ', sel);
+        // }
 
         this.selection = sel;
-        // console.log('THIS.SELECTION = ', this.selection);
+        console.log('THIS.SELECTION = ', this.selection);
+    }
+    
+    private handleMouseUp() {
+        console.log('handleMouseUp ', this.selection);
+        this.isSelecting = false;
+        this.anchorOffset = null;
+    }
+    
+    private handleMouseDown(e: MouseEvent) {
+        console.log('handleMouseDown ', this.selection);
+        
+        if (!e.shiftKey) {
+            this.selection = null;
+            this.anchorOffset = null;
+        }
+
+        const target = e.target as Node;
+        if (!target) return;
+
+        let pos: { offsetNode: Node; offset: number } | null = null;
+
+        if (document.caretPositionFromPoint) {
+            const caret = document.caretPositionFromPoint(e.clientX, e.clientY);
+            if (caret) {
+                pos = { offsetNode: caret.offsetNode, offset: caret.offset };
+            }
+        } else if ((document as any).caretRangeFromPoint) {
+            const range = (document as any).caretRangeFromPoint(e.clientX, e.clientY);
+            if (range) {
+                pos = { offsetNode: range.startContainer, offset: range.startOffset };
+            }
+        }
+
+        if (!pos || !pos.offsetNode) return;
+
+        const abs = resolveAbsoluteOffset(pos.offsetNode, pos.offset);
+        
+        
+        if (abs != null) {
+            this.isSelecting = true;
+            let ao = this.code.getOffset(abs.row, abs.col)
+            this.anchorOffset = ao;
+            console.log("Anchor offset set (mousedown):", abs);
+        } else {
+            console.warn("Failed to resolve anchor offset (mousedown)");
+        }
+    }
+    
+    private handleMouseMove(event: MouseEvent) {
+        if (this.isSelecting) {
+            let e = event;
+            const target = e.target as Node;
+            if (!target) return;
+
+            let pos: { offsetNode: Node; offset: number } | null = null;
+
+            if (document.caretPositionFromPoint) {
+                const caret = document.caretPositionFromPoint(e.clientX, e.clientY);
+                if (caret) {
+                    pos = { offsetNode: caret.offsetNode, offset: caret.offset };
+                }
+            } else if ((document as any).caretRangeFromPoint) {
+                const range = (document as any).caretRangeFromPoint(e.clientX, e.clientY);
+                if (range) {
+                    pos = { offsetNode: range.startContainer, offset: range.startOffset };
+                }
+            }
+
+            if (!pos || !pos.offsetNode) return;
+
+            const abs = resolveAbsoluteOffset(pos.offsetNode, pos.offset);
+            if (abs != null) {
+                // this.isSelecting = true;
+                let ao = this.code.getOffset(abs.row, abs.col)
+                this.offset = ao;
+                // console.log("this.offset = ", abs);
+            } else {
+                console.warn("Failed to resolve this.offset");
+            }
+        }
     }
     
     private async handleKeydown(event: KeyboardEvent) {

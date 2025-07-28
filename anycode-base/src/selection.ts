@@ -2,55 +2,101 @@ import { AnycodeLine, Pos } from "./utils";
 import { Code } from "./code";
 
 export class Selection {
-    start: number;
-    end: number;
+    readonly anchor: number;
+    readonly cursor: number;
 
-    constructor(a: number, b: number) {
-        this.start = a;
-        this.end = b;
+    constructor(anchor: number, cursor: number) {
+        this.anchor = anchor;
+        this.cursor = cursor;
+    }
+
+    static fromRange(start: number, end: number): Selection {
+        return new Selection(start, end);
     }
 
     static fromAnchorAndCursor(anchor: number, cursor: number): Selection {
-        if (anchor <= cursor) return new Selection(anchor, cursor);
-        else return new Selection(cursor, anchor);
+        return new Selection(anchor, cursor);
     }
 
-    public isActive(): boolean {
-        return this.start !== this.end;
+    static empty(offset: number): Selection {
+        return new Selection(offset, offset);
     }
 
     public isEmpty(): boolean {
-        return Math.max(this.start, this.end) === Math.min(this.start, this.end);
+        return this.anchor === this.cursor;
     }
     
     public nonEmpty(): boolean {
         return !this.isEmpty();
     }
 
+    public isActive(): boolean {
+        return this.nonEmpty();
+    }
+
     public contains(index: number): boolean {
-        return index >= this.start && index < this.end;
+        const [start, end] = this.sorted();
+        return index >= start && index < end;
     }
 
     public sorted(): [number, number] {
-        return [Math.min(this.start, this.end), Math.max(this.start, this.end)];
+        return this.anchor <= this.cursor 
+            ? [this.anchor, this.cursor] 
+            : [this.cursor, this.anchor];
+    }
+
+    public get start(): number {
+        return Math.min(this.anchor, this.cursor);
+    }
+
+    public get end(): number {
+        return Math.max(this.anchor, this.cursor);
     }
 
     public min(): number {
-        return Math.min(this.start, this.end);
+        return this.start;
     }
     
     public max(): number {
-        return Math.max(this.start, this.end);
+        return this.end;
+    }
+
+    public length(): number {
+        return this.end - this.start;
+    }
+
+    public isForward(): boolean {
+        return this.cursor >= this.anchor;
+    }
+
+    public isBackward(): boolean {
+        return this.cursor < this.anchor;
+    }
+
+    public moveCursor(newCursor: number): Selection {
+        return new Selection(this.anchor, newCursor);
+    }
+
+    public moveAnchor(newAnchor: number): Selection {
+        return new Selection(newAnchor, this.cursor);
+    }
+
+    public collapse(toAnchor: boolean = false): Selection {
+        const offset = toAnchor ? this.anchor : this.cursor;
+        return Selection.empty(offset);
+    }
+
+    public equals(other: Selection | null): boolean {
+        if (!other) return false;
+        return this.anchor === other.anchor && this.cursor === other.cursor;
     }
 
     public toString(): string {
-        return `[${this.start}, ${this.end})`;
+        return `Selection(anchor=${this.anchor}, cursor=${this.cursor})`;
     }
 
     public bigger(s: Selection): boolean {
-        let [start, end] = this.sorted();
-        let [sstart, send] = s.sorted();
-        return (end - start) > (send - sstart);
+        return this.length() > s.length();
     }
 }
 
@@ -123,14 +169,9 @@ export function resolveAbsoluteOffset(node: Node, nodeOffset: number): Pos | nul
 }
 
 export function selectionAnchor(selection: Selection | null, cursor: number): number {
-    // Returns the anchor (start or end) of the selection, given the cursor offset
-    // Assumes selection has .start and .end properties (as offsets)
+    // Returns the anchor position of the selection
     if (selection == null) return cursor;
-    if (cursor === selection.start) {
-        return selection.end;
-    } else {
-        return selection.start;
-    }
+    return selection.anchor;
 }
 
 
@@ -168,7 +209,7 @@ function resolveDOMPosition(
 export function setSelectionFromOffsets(
     selection: Selection, lines: AnycodeLine[], code: Code
 ) {
-    console.log('setSelectionFromOffsets', selection, lines, code);
+    // console.log('setSelectionFromOffsets', selection, lines, code);
     
     if (lines.length === 0) return;
 
@@ -322,39 +363,6 @@ function findNodeAndOffset(lineDiv: AnycodeLine, targetOffset: number) {
     }
     return null;
 }
-
-export function setSelection(element, start, end) {
-    // Find the line divs
-    const startLineDiv = element.querySelector(`.line[ln="${start.row}"]`);
-    const endLineDiv = element.querySelector(`.line[ln="${end.row}"]`);
-
-    if (!startLineDiv || !endLineDiv) {
-        const selection = window.getSelection();
-        if (selection) selection.removeAllRanges();
-        return;
-    }
-
-    // Find nodes and offsets
-    const startPos = findNodeAndOffset(startLineDiv, start.col);
-    const endPos = findNodeAndOffset(endLineDiv, end.col);
-
-    // Set range if both positions are found
-    if (startPos && endPos) {
-        // console.log('setSelectionFromPosition', { start, end });
-        const range = document.createRange();
-        const selection = window.getSelection();
-
-        range.setStart(startPos.node, startPos.offset);
-        range.setEnd(endPos.node, endPos.offset);
-
-        if (selection) {
-            selection.removeAllRanges();
-            selection.addRange(range);
-        }
-    }
-}
-
-
 
 export function selectionDirection(selection: globalThis.Selection) {
     const anchorNode = selection.anchorNode!;
