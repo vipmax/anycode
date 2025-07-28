@@ -10,12 +10,12 @@ const App: React.FC = () => {
     console.log('Hello, World!');
 }
 
-`.repeat(5000)
+`.repeat(50)
     );
     
     return (
-        <div style={{ padding: '0.3rem', height: '90vh' }}>
-            <button onClick={() => setEditorId(`id${Math.random()}`)}>update</button>
+        <div style={{ padding: '0.3rem', height: 'calc(100dvh - 0.6rem)' }}>
+            {/* <button onClick={() => setEditorId(`id${Math.random()}`)}>update</button> */}
             <AnycodeEditorReact id={editorId} text={text} />
         </div>
     );

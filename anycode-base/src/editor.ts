@@ -20,8 +20,7 @@ import {
 
 import {
     Selection, getSelection,
-    selectionDirection, setSelectionFromOffsets as renderSelection,
-    resolveAbsoluteOffset
+    setSelectionFromOffsets as renderSelection,
 } from "./selection";
 
 import './styles.css';
@@ -44,6 +43,10 @@ export class AnycodeEditor {
     private isMouseSelecting: boolean = false;
     private selection: Selection | null = null;
     private autoScrollTimer: number | null = null;
+    private ignoreNextSelectionSet: boolean = false;
+    
+    private isRenderPending = false;
+    private lastScrollTop = 0;
 
     private runLines: number[] = [];
     private errorLines: Map<number, string> = new Map();
@@ -106,32 +109,18 @@ export class AnycodeEditor {
         }
     }
 
-    private setupEventListeners() {
-        console.log("setupEventListeners");
-        
-        let ticking = false;
-        var lastScrollTop = 0;
-        
-        this.container.addEventListener("scroll", () => {
-            const scrollTop = this.container.scrollTop;
-            if (!ticking) {
-                requestAnimationFrame(() => {
-                    if (scrollTop !== lastScrollTop) {
-                        this.render();
-                        lastScrollTop = scrollTop;
-                    }
-                    ticking = false;
-                });
-                ticking = true;
-            }
-        });
-        
+    private setupEventListeners() {        
+        this.handleScroll = this.handleScroll.bind(this);
+        this.container.addEventListener("scroll", this.handleScroll);
         
         this.handleClick = this.handleClick.bind(this);
         this.codeContent.addEventListener('click', this.handleClick);
         
         this.handleKeydown = this.handleKeydown.bind(this);
         this.codeContent.addEventListener('keydown', this.handleKeydown);
+        
+        this.handleBeforeInput = this.handleBeforeInput.bind(this);
+        this.container.addEventListener('beforeinput', this.handleBeforeInput);
         
         this.handleMouseDown = this.handleMouseDown.bind(this);
         this.codeContent.addEventListener('mousedown', this.handleMouseDown);
@@ -141,6 +130,23 @@ export class AnycodeEditor {
         
         this.handleMouseMove = this.handleMouseMove.bind(this);
         this.codeContent.addEventListener('mousemove', this.handleMouseMove);
+        
+        this.handleSelectionChange = this.handleSelectionChange.bind(this);
+        document.addEventListener('selectionchange', this.handleSelectionChange);
+    }
+    
+    private handleScroll() {
+        const scrollTop = this.container.scrollTop;
+        if (!this.isRenderPending) {
+            requestAnimationFrame(() => {
+                if (scrollTop !== this.lastScrollTop) {
+                    this.render();
+                    this.lastScrollTop = scrollTop;
+                }
+                this.isRenderPending = false;
+            });
+            this.isRenderPending = true;
+        }
     }
 
     private createSpacer(height: number): HTMLDivElement {
@@ -289,6 +295,7 @@ export class AnycodeEditor {
         if (!this.selection || this.selection.isEmpty()) {
             this.updateCursor(false);
         } else {
+            this.ignoreNextSelectionSet = true;
             renderSelection(this.selection, this.getLines(), this.code)
         }
     }
@@ -331,20 +338,13 @@ export class AnycodeEditor {
         ) as AnycodeLine[];
         
         if (codeChildren.length === 0) { this.render(); return; }
-        
-        const buttonChildren = Array.from(this.buttonsColumn.children).filter(child =>
-            !child.classList.contains('spacer')
-        ) as HTMLElement[];
-        
-        const gutterChildren = Array.from(this.gutter.children).filter(child => 
-            !child.classList.contains('spacer')
-        ) as HTMLElement[];
+    
             
         let oldStartLine = codeChildren[0].lineNumber;
         let oldEndLine = codeChildren[codeChildren.length - 1].lineNumber + 1;
 
         if (oldStartLine !== startLine || oldEndLine !== endLine) {
-            console.log('oldStartLine !== startLine || oldEndLine !== endLine full render');
+            // console.log('oldStartLine !== startLine || oldEndLine !== endLine full render');
             this.render();
             console.timeEnd('updateChanges');
             return;
@@ -362,17 +362,15 @@ export class AnycodeEditor {
                 const existingHash = existingLine.getAttribute('data-hash');
                 if (existingHash !== theHash) {
                     // Replace line
-                    console.log(`Line ${i} update`);
+                    // console.log(`Line ${i} update`);
+                    // Try smarter approach to update row 
                     const newLineElement = this.createLineWrapper(i, nodes);
                     existingLine.replaceWith(newLineElement);
                     
-                    // Try smart update first
-                    // this.updateLineWrapper(existingLine, nodes)
-                    // console.log(`Line ${i} smart update`);
                 }
             } else {
                 // This should trigger a full re-render since we're missing lines
-                console.log('Missing lines detected, triggering full render');
+                // console.log('Missing lines detected, triggering full render');
                 this.render();
                 console.timeEnd('updateChanges');
                 return;
@@ -382,53 +380,8 @@ export class AnycodeEditor {
         console.timeEnd('updateChanges');
     }
     
-    private updateLineWrapper(
-        existingLine: AnycodeLine, 
-        newNodes: HighlighedNode[]
-    ): boolean {
-        const existingSpans = Array.from(existingLine.children) as HTMLSpanElement[];
-        
-        // Simple diff: compare arrays element by element
-        let changed = false;
-        const maxLen = Math.max(existingSpans.length, newNodes.length);
-        
-        for (let i = 0; i < maxLen; i++) {
-            const existingSpan = existingSpans[i];
-            const newNode = newNodes[i];
-            
-            if (!existingSpan && newNode) {
-                // Insert new span
-                const span = this.createSpan(newNode);
-                existingLine.appendChild(span);
-                changed = true;
-            } else if (existingSpan && !newNode) {
-                // Remove old span
-                existingSpan.remove();
-                changed = true;
-            } else if (existingSpan && newNode) {
-                // Check if span needs update
-                if (existingSpan.textContent !== newNode.text || 
-                    existingSpan.className !== (newNode.name || '')) {
-                    existingSpan.textContent = newNode.text;
-                    existingSpan.className = newNode.name || '';
-                    changed = true;
-                }
-            }
-        }
-        
-        return changed;
-    }
-    
-    private createSpan(node: HighlighedNode): HTMLSpanElement {
-        const span = document.createElement('span');
-        if (node.name) span.className = node.name;
-        if (!node.name && node.text === '\t') span.className = 'indent';
-        span.textContent = node.text;
-        return span;
-    }
-    
     private handleClick(e: MouseEvent): void {
-        console.log("handleClick ", this.selection);
+        // console.log("handleClick ", this.selection);
         if (this.selection && this.selection.nonEmpty()) {
             return;
         }
@@ -441,12 +394,13 @@ export class AnycodeEditor {
         const o = this.code.getOffset(pos.row, pos.col);
         this.offset = o;
         
-        console.log('click pos ', pos, o);
+        // console.log('click pos ', pos, o);
+        this.ignoreNextSelectionSet = true;
         this.updateCursor();
     }
     
     private handleMouseUp(e: MouseEvent) {
-        console.log('handleMouseUp ', this.selection);
+        // console.log('handleMouseUp ', this.selection);
         this.isMouseSelecting = false;
         
         if (this.autoScrollTimer) {
@@ -478,6 +432,7 @@ export class AnycodeEditor {
 
         if (e.shiftKey && this.selection) {
             this.selection.updateCursor(o);
+            this.ignoreNextSelectionSet = true;
             renderSelection(this.selection, this.getLines(), this.code)
         } else {
             if (this.selection) {
@@ -495,13 +450,14 @@ export class AnycodeEditor {
         this.autoScroll(e);
         
         let pos = getPosFromMouse(e);
-        console.log('handleMouseMove pos ', pos);
+        // console.log('handleMouseMove pos ', pos);
         
         if (pos && this.selection){
             let o = this.code.getOffset(pos.row, pos.col);
             this.selection.updateCursor(o);
             this.offset = o;
-            console.log('handleMouseMove ', this.selection);
+            // console.log('handleMouseMove ', this.selection);
+            this.ignoreNextSelectionSet = true;
             renderSelection(this.selection, this.getLines(), this.code)
         }
     }
@@ -542,13 +498,11 @@ export class AnycodeEditor {
                 } else {  // Scroll down
                     this.container.scrollTop = Math.min(maxScroll, currentScroll + scrollSpeed);
                 }
-                
                 // Continue scrolling if still selecting
                 if (this.isMouseSelecting) {
                     this.autoScrollTimer = requestAnimationFrame(autoScroll);
                 }
             };
-            
             this.autoScrollTimer = requestAnimationFrame(autoScroll);
         }
     }
@@ -565,6 +519,7 @@ export class AnycodeEditor {
         this.selection = new Selection(start, end);
         
         this.offset = end;
+        this.ignoreNextSelectionSet = true;
         renderSelection(this.selection, this.getLines(), this.code)
     }
 
@@ -576,7 +531,22 @@ export class AnycodeEditor {
         this.selection = new Selection(start, end);
     
         this.offset = end;
+        this.ignoreNextSelectionSet = true;
         renderSelection(this.selection, this.getLines(), this.code)
+    }
+    
+    private handleSelectionChange(e: Event) {
+        if (this.ignoreNextSelectionSet) {
+            this.ignoreNextSelectionSet = false;
+            return;
+        }
+        
+        const selection = getSelection();
+        if (selection) {
+            const start = this.code.getOffset(selection.start.row, selection.start.col);
+            const end = this.code.getOffset(selection.end.row, selection.end.col);
+            this.selection = new Selection(start, end);
+        }
     }
     
     private async handleKeydown(event: KeyboardEvent) {
@@ -665,8 +635,42 @@ export class AnycodeEditor {
         if (this.selection !== result.ctx.selection) {
             this.selection = result.ctx.selection || null;
             if (this.selection) {
+                this.ignoreNextSelectionSet = true;
                 renderSelection(this.selection, this.getLines(), this.code)
             }
+        }
+    }
+    
+    private async handleBeforeInput(e: InputEvent) {
+        // this one is for mobile devices, support input and deletion
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (e.inputType === 'deleteContentBackward') {
+            const ctx: ActionContext = {
+                offset: this.offset,
+                code: this.code,
+                selection: this.selection || undefined,
+            };
+            const result = await executeAction(Action.BACKSPACE, ctx);
+            this.applyEditResult(result);
+            return;
+        } else if (e.inputType === 'deleteContentForward') {
+        } else if (e.inputType.startsWith('delete')) {
+        } else {
+            // Default case for insertion or other input events
+            let key = e.data ?? '';
+            if (key === '') return;
+            
+            const ctx: ActionContext = {
+                offset: this.offset,
+                code: this.code,
+                selection: this.selection || undefined,
+                event: { key } as KeyboardEvent
+            };
+            
+            const result = await executeAction(Action.TEXT_INPUT, ctx);
+            this.applyEditResult(result);
         }
     }
 }

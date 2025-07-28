@@ -472,7 +472,6 @@ export const moveArrowUp = (ctx: ActionContext): ActionResult => {
 };
 
 export const moveArrowRight = (ctx: ActionContext, alt: boolean): ActionResult => {
-    console.log('moveArrowRight');
     if (ctx.offset >= ctx.code.length()) return { ctx, changed: false };
 
     if (alt) {
