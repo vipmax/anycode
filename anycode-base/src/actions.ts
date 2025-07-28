@@ -32,7 +32,7 @@ export type ActionContext = {
     offset: number;
     code: Code;
     selection?: Selection;
-    key?: string;
+    event?: KeyboardEvent
 };
 
 export type ActionResult = {
@@ -44,7 +44,6 @@ export type ActionResult = {
 export const executeAction = async (
     action: Action, ctx: ActionContext
 ): Promise<ActionResult> => {
-    // const { offset, code, selection, key = '' } = ctx;
 
     switch (action) {
         // Navigation
@@ -102,7 +101,7 @@ export const handleTextInput = (ctx: ActionContext): ActionResult => {
         removeSelection(ctx);
     }
     
-    let text = ctx.key!;
+    let text = ctx.event!.key;
     ctx.code.insert(text, ctx.offset);
     ctx.offset += text.length;
     ctx.code.commit();
@@ -436,6 +435,14 @@ export const moveArrowDown = (ctx: ActionContext): ActionResult => {
     const nextLine = line + 1;
     const nextCol = Math.min(column, ctx.code.lineLength(nextLine));
     ctx.offset = ctx.code.getOffset(nextLine, nextCol);
+    
+    if(ctx.selection) {
+        if (ctx.event?.shiftKey) {
+            ctx.selection = ctx.selection.withCursor(ctx.offset);
+        } else {
+            ctx.selection.reset(ctx.offset)
+        }
+    }
 
     return { ctx, changed: false };
 };
@@ -452,11 +459,20 @@ export const moveArrowUp = (ctx: ActionContext): ActionResult => {
     const prevLine = line - 1;
     const prevCol = Math.min(column, ctx.code.lineLength(prevLine));
     ctx.offset = ctx.code.getOffset(prevLine, prevCol);
+    
+    if(ctx.selection) {
+        if (ctx.event?.shiftKey) {
+            ctx.selection = ctx.selection.withCursor(ctx.offset);
+        } else {
+            ctx.selection.reset(ctx.offset)
+        }
+    }
 
     return { ctx, changed: false };
 };
 
 export const moveArrowRight = (ctx: ActionContext, alt: boolean): ActionResult => {
+    console.log('moveArrowRight');
     if (ctx.offset >= ctx.code.length()) return { ctx, changed: false };
 
     if (alt) {
@@ -467,6 +483,14 @@ export const moveArrowRight = (ctx: ActionContext, alt: boolean): ActionResult =
         ctx.offset += jump;
     } else {
         ctx.offset += 1;
+    }
+    
+    if(ctx.selection) {
+        if (ctx.event?.shiftKey) {
+            ctx.selection = ctx.selection.withCursor(ctx.offset);
+        } else {
+            ctx.selection.reset(ctx.offset)
+        }
     }
 
     return { ctx, changed: false };
@@ -484,6 +508,14 @@ export const moveArrowLeft = (ctx: ActionContext, alt: boolean): ActionResult =>
         ctx.offset -= jump;
     } else {
         ctx.offset -= 1;
+    }
+    
+    if(ctx.selection) {
+        if (ctx.event?.shiftKey) {
+            ctx.selection = ctx.selection.withCursor(ctx.offset);
+        } else {
+            ctx.selection.reset(ctx.offset)
+        }
     }
 
     return { ctx, changed: false };

@@ -46,7 +46,7 @@ export function isCharacter(event: KeyboardEvent): boolean {
 
 const WORD_BREAK_CHARS = [
     ' ', '.', ',', '=', '+', '-', '[', '(', '{', ']', ')', '}',
-    '"', ':', '&', '?', '!', ';', '\t', '/', '<', '>', '\n'
+    '"', ':', '&', '?', '!', ';', '\t', '/', '<', '>', '\n', '\''
 ];
 
 export function findNextWord(line: string, from: number): number {

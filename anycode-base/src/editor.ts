@@ -2,7 +2,8 @@ import { Code, HighlighedNode } from "./code";
 import { 
     generateCssClasses, addCssToDocument, isCharacter,
     AnycodeLine as AnycodeLine, Pos,
-    minimize, objectHash
+    minimize, objectHash,
+    findPrevWord, findNextWord
 } from './utils';
 
 import { vesper } from './theme';
@@ -10,7 +11,7 @@ import {
     Action, ActionContext, ActionResult, executeAction
 } from './actions';
 import {
-    getMouseRow, getMouseCol
+    getMouseRow, getMouseCol, getPosFromMouse
 } from './mouse';
 
 import { 
@@ -19,7 +20,7 @@ import {
 
 import {
     Selection, getSelection,
-    selectionDirection, setSelectionFromOffsets,
+    selectionDirection, setSelectionFromOffsets as renderSelection,
     resolveAbsoluteOffset
 } from "./selection";
 
@@ -40,11 +41,9 @@ export class AnycodeEditor {
     private gutter!: HTMLDivElement;
     private codeContent!: HTMLDivElement;
     
-    
+    private isMouseSelecting: boolean = false;
     private selection: Selection | null = null;
-    private isSelecting: boolean = false;
-    private anchorOffset: number | null = null;
-    private ignoreNextSelection: boolean = false;
+    private autoScrollTimer: number | null = null;
 
     private runLines: number[] = [];
     private errorLines: Map<number, string> = new Map();
@@ -53,12 +52,6 @@ export class AnycodeEditor {
         this.offset = 0;
         this.code = new Code(initialText, "test", "javascript");
         this.settings = { lineHeight: 20, buffer: 20 };
-        
-        // this.setErrors([
-        //     { line: 2, message: 'Unexpected token' },
-        //     { line: 4, message: 'Undefined variable `foo`' },
-        // ]);
-        // this.runLines = [1, 2, 3];
         
         const theme = options.theme || vesper;
         const css = generateCssClasses(theme);
@@ -139,9 +132,6 @@ export class AnycodeEditor {
         
         this.handleKeydown = this.handleKeydown.bind(this);
         this.codeContent.addEventListener('keydown', this.handleKeydown);
-        
-        this.handleSelectionChange = this.handleSelectionChange.bind(this);
-        document.addEventListener('selectionchange', this.handleSelectionChange);
         
         this.handleMouseDown = this.handleMouseDown.bind(this);
         this.codeContent.addEventListener('mousedown', this.handleMouseDown);
@@ -299,9 +289,7 @@ export class AnycodeEditor {
         if (!this.selection || this.selection.isEmpty()) {
             this.updateCursor(false);
         } else {
-            const lines = this.getLines();
-            setSelectionFromOffsets(this.selection, lines, this.code)
-            this.ignoreNextSelection = true;
+            renderSelection(this.selection, this.getLines(), this.code)
         }
     }
     
@@ -312,6 +300,7 @@ export class AnycodeEditor {
             ) as AnycodeLine[];
         return lines;
     }
+    
     private getLine(lineNumber: number): AnycodeLine | null {
         const { startLine, endLine } = this.getVisibleRange();
         if (lineNumber < startLine || lineNumber >= endLine) return null;
@@ -438,167 +427,156 @@ export class AnycodeEditor {
         return span;
     }
     
-    private handleClick(event: MouseEvent): void {
+    private handleClick(e: MouseEvent): void {
         console.log("handleClick ", this.selection);
         if (this.selection && this.selection.nonEmpty()) {
             return;
         }
         
-        event.preventDefault();
-        const sel = window.getSelection();
-        const row = getMouseRow(event, sel);
-        if (row === null) return;
-      
-        const lineDiv = this.getLine(row);
-        if (!lineDiv) return;
-      
-        const chunks = Array.from(lineDiv.childNodes);
-        const col = getMouseCol(event, sel, chunks);
+        e.preventDefault();
         
-        if (col === null) return;
-
-        let offset = this.code.getOffset(row, col);
-        this.offset = offset;
-        console.log('click', row, col, offset);
+        const pos = getPosFromMouse(e);
+        if (!pos) return;
+    
+        const o = this.code.getOffset(pos.row, pos.col);
+        this.offset = o;
+        
+        console.log('click pos ', pos, o);
         this.updateCursor();
     }
     
-    private handleSelectionChange(e: Event) {
-        console.log("");
-        if (this.ignoreNextSelection) {
-            console.log('ignoreNextSelection');
-            this.ignoreNextSelection = false;
-            return;
-        }
-
-        const selectionPos = getSelection();
-        
-        if (!selectionPos) {
-            this.selection = null;
-            return;
-        }
-            
-        let selectionStartOffset = this.code.getOffset(
-            selectionPos.start.row, selectionPos.start.col
-        );
-        let selectionEndOffset = this.code.getOffset(
-            selectionPos.end.row, selectionPos.end.col
-        );
-        let selection = new Selection(
-            selectionStartOffset, selectionEndOffset
-        );
-        console.log('SELECTION = ', selection);
-        
-        const direction = selectionDirection(window.getSelection()!);
-
-        if (this.anchorOffset == null) {
-            if (!selection.isEmpty()) {
-                this.selection = new Selection(selection.start, selection.end);
-                this.offset = this.selection.max();
-                console.log('THIS.SELECTION = ', selection);
-            }
-            return;
-        }
-
-        console.log('this.offset =', this.offset, "anchor = ", this.anchorOffset);
-        let sel = new Selection(this.anchorOffset!, this.offset);
-        console.log('sel', sel);
-
-        // this.offset = direction === 'forward' ? selection!.end : selection!.start;
-
-        // if (!this.anchorOffset && selection) {
-        //     if (direction === 'forward') sel = new Selection(selection.start, this.offset);
-        //     else sel = new Selection(this.offset, selection.end);
-        // }
-
-        // if ((sel.isEmpty() && !selection.isEmpty()) || (!sel.isEmpty() && selection.bigger(sel))) {
-        //     sel = selection;
-        //     this.offset = sel.max();
-        //     // console.log('BIGGER = ', sel);
-        // }
-
-        this.selection = sel;
-        console.log('THIS.SELECTION = ', this.selection);
-    }
-    
-    private handleMouseUp() {
+    private handleMouseUp(e: MouseEvent) {
         console.log('handleMouseUp ', this.selection);
-        this.isSelecting = false;
-        this.anchorOffset = null;
+        this.isMouseSelecting = false;
+        
+        if (this.autoScrollTimer) {
+            cancelAnimationFrame(this.autoScrollTimer);
+            this.autoScrollTimer = null;
+        }
     }
     
     private handleMouseDown(e: MouseEvent) {
-        console.log('handleMouseDown ', this.selection);
-        
-        if (!e.shiftKey) {
-            this.selection = null;
-            this.anchorOffset = null;
+        if (e.button !== 0) return;
+        e.preventDefault();
+    
+        this.isMouseSelecting = true;
+    
+        const pos = getPosFromMouse(e);
+        if (!pos) return;
+    
+        if (e.detail === 2) { // double click
+            this.selectWord(pos.row, pos.col);
+            return;
         }
-
-        const target = e.target as Node;
-        if (!target) return;
-
-        let pos: { offsetNode: Node; offset: number } | null = null;
-
-        if (document.caretPositionFromPoint) {
-            const caret = document.caretPositionFromPoint(e.clientX, e.clientY);
-            if (caret) {
-                pos = { offsetNode: caret.offsetNode, offset: caret.offset };
-            }
-        } else if ((document as any).caretRangeFromPoint) {
-            const range = (document as any).caretRangeFromPoint(e.clientX, e.clientY);
-            if (range) {
-                pos = { offsetNode: range.startContainer, offset: range.startOffset };
-            }
+        
+        if (e.detail === 3) { // triple click
+            this.selectLine(pos.row);
+            return;
         }
+    
+        const o = this.code.getOffset(pos.row, pos.col);
 
-        if (!pos || !pos.offsetNode) return;
-
-        const abs = resolveAbsoluteOffset(pos.offsetNode, pos.offset);
-        
-        
-        if (abs != null) {
-            this.isSelecting = true;
-            let ao = this.code.getOffset(abs.row, abs.col)
-            this.anchorOffset = ao;
-            console.log("Anchor offset set (mousedown):", abs);
+        if (e.shiftKey && this.selection) {
+            this.selection.updateCursor(o);
+            renderSelection(this.selection, this.getLines(), this.code)
         } else {
-            console.warn("Failed to resolve anchor offset (mousedown)");
+            if (this.selection) {
+                this.selection.reset(o);
+            } else {
+                this.selection = new Selection(o, o);
+            }
         }
     }
     
-    private handleMouseMove(event: MouseEvent) {
-        if (this.isSelecting) {
-            let e = event;
-            const target = e.target as Node;
-            if (!target) return;
-
-            let pos: { offsetNode: Node; offset: number } | null = null;
-
-            if (document.caretPositionFromPoint) {
-                const caret = document.caretPositionFromPoint(e.clientX, e.clientY);
-                if (caret) {
-                    pos = { offsetNode: caret.offsetNode, offset: caret.offset };
-                }
-            } else if ((document as any).caretRangeFromPoint) {
-                const range = (document as any).caretRangeFromPoint(e.clientX, e.clientY);
-                if (range) {
-                    pos = { offsetNode: range.startContainer, offset: range.startOffset };
-                }
-            }
-
-            if (!pos || !pos.offsetNode) return;
-
-            const abs = resolveAbsoluteOffset(pos.offsetNode, pos.offset);
-            if (abs != null) {
-                // this.isSelecting = true;
-                let ao = this.code.getOffset(abs.row, abs.col)
-                this.offset = ao;
-                // console.log("this.offset = ", abs);
-            } else {
-                console.warn("Failed to resolve this.offset");
-            }
+    private handleMouseMove(e: MouseEvent) {
+        e.preventDefault();
+        if (!this.isMouseSelecting) return;
+        
+        this.autoScroll(e);
+        
+        let pos = getPosFromMouse(e);
+        console.log('handleMouseMove pos ', pos);
+        
+        if (pos && this.selection){
+            let o = this.code.getOffset(pos.row, pos.col);
+            this.selection.updateCursor(o);
+            this.offset = o;
+            console.log('handleMouseMove ', this.selection);
+            renderSelection(this.selection, this.getLines(), this.code)
         }
+    }
+    
+    private autoScroll(e: MouseEvent) {
+        const containerRect = this.container.getBoundingClientRect();
+        const mouseY = e.clientY;
+        const scrollThreshold = 20; // pixels from edge to trigger scroll
+        const scrollSpeed = 5; // pixels to scroll per frame
+        
+        // Clear existing timer
+        if (this.autoScrollTimer) {
+            cancelAnimationFrame(this.autoScrollTimer);
+            this.autoScrollTimer = null;
+        }
+        
+        let shouldScroll = false;
+        let scrollDirection = 0;
+        
+        // Check if mouse is near the top or bottom edge
+        if (mouseY < containerRect.top + scrollThreshold) {
+            shouldScroll = true;
+            scrollDirection = -1; // scroll up
+        } else if (mouseY > containerRect.bottom - scrollThreshold) {
+            shouldScroll = true;
+            scrollDirection = 1; // scroll down
+        }
+        
+        if (shouldScroll) {
+            const autoScroll = () => {
+                if (!this.isMouseSelecting) return;
+                
+                const currentScroll = this.container.scrollTop;
+                const maxScroll = this.container.scrollHeight - this.container.clientHeight;
+                
+                if (scrollDirection === -1) {  // Scroll up
+                    this.container.scrollTop = Math.max(0, currentScroll - scrollSpeed);
+                } else {  // Scroll down
+                    this.container.scrollTop = Math.min(maxScroll, currentScroll + scrollSpeed);
+                }
+                
+                // Continue scrolling if still selecting
+                if (this.isMouseSelecting) {
+                    this.autoScrollTimer = requestAnimationFrame(autoScroll);
+                }
+            };
+            
+            this.autoScrollTimer = requestAnimationFrame(autoScroll);
+        }
+    }
+    
+    private selectWord(row: number, col: number) {
+        const line = this.code.line(row); 
+    
+        const startCol = findPrevWord(line, col);
+        const endCol = findNextWord(line, col);
+    
+        const start = this.code.getOffset(row, startCol);
+        const end = this.code.getOffset(row, endCol);
+    
+        this.selection = new Selection(start, end);
+        
+        this.offset = end;
+        renderSelection(this.selection, this.getLines(), this.code)
+    }
+
+    private selectLine(row: number) {
+        const line = this.code.line(row);
+        const start = this.code.getOffset(row, 0);
+        const end   = this.code.getOffset(row, line.length);
+    
+        this.selection = new Selection(start, end);
+    
+        this.offset = end;
+        renderSelection(this.selection, this.getLines(), this.code)
     }
     
     private async handleKeydown(event: KeyboardEvent) {
@@ -613,7 +591,7 @@ export class AnycodeEditor {
             offset: this.offset,
             code: this.code,
             selection: this.selection || undefined,
-            key: event.key
+            event: event
         };
         
         const result = await executeAction(action, ctx);
@@ -641,26 +619,25 @@ export class AnycodeEditor {
         }
         
         // Navigation
-        if (!shiftKey) {
-            if (altKey) {
-                switch (key) {
-                    case "ArrowLeft": return Action.ARROW_LEFT_ALT;
-                    case "ArrowRight": return Action.ARROW_RIGHT_ALT;
-                }
-            } else {
-                switch (key) {
-                    case "ArrowLeft": return Action.ARROW_LEFT;
-                    case "ArrowRight": return Action.ARROW_RIGHT;
-                    case "ArrowUp": return Action.ARROW_UP;
-                    case "ArrowDown": return Action.ARROW_DOWN;
-                }
-            } 
+        if (altKey) {
+            switch (key) {
+                case "ArrowLeft": return Action.ARROW_LEFT_ALT;
+                case "ArrowRight": return Action.ARROW_RIGHT_ALT;
+            }
         } else {
-            if (shiftKey && key === 'Tab') 
-                return Action.UNTAB;
-        }
+            switch (key) {
+                case "ArrowLeft": return Action.ARROW_LEFT;
+                case "ArrowRight": return Action.ARROW_RIGHT;
+                case "ArrowUp": return Action.ARROW_UP;
+                case "ArrowDown": return Action.ARROW_DOWN;
+            }
+        } 
         
         // Editing
+        if (shiftKey && key === 'Tab') {
+            return Action.UNTAB;
+        } 
+        
         switch (key) {
             case "Backspace": return Action.BACKSPACE;
             case "Delete": return Action.DELETE;
@@ -677,26 +654,19 @@ export class AnycodeEditor {
     }
     
     private applyEditResult(result: ActionResult) {
-    
         if (result.changed) {
             this.code = result.ctx.code;
             this.renderChanges();
         }
-        
         if (result.ctx.offset !== this.offset) {
             this.offset = result.ctx.offset;
-            this.updateCursor(false);
+            this.updateCursor(true);
         }
-        
         if (this.selection !== result.ctx.selection) {
             this.selection = result.ctx.selection || null;
-            
-            const lines = this.getLines();
             if (this.selection) {
-                setSelectionFromOffsets(this.selection, lines, this.code);
+                renderSelection(this.selection, this.getLines(), this.code)
             }
-            this.ignoreNextSelection = true;
         }
     }
-    
 }

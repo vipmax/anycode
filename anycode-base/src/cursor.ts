@@ -68,10 +68,8 @@ export function moveCursor(
             scrollable!, cursorNode, cursorOffset, 
             buttonsWidth + gutterWidth + codePaddingLeft
         );
-        console.log('scrollable?.scrollTop', scrollable?.scrollTop);
     }
 
-     
     const sel = window.getSelection();
     if (sel) {
         sel.removeAllRanges();

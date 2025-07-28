@@ -2,12 +2,20 @@ import { AnycodeLine, Pos } from "./utils";
 import { Code } from "./code";
 
 export class Selection {
-    readonly anchor: number;
-    readonly cursor: number;
+    public anchor: number | null ;
+    public cursor: number | null ;
 
     constructor(anchor: number, cursor: number) {
         this.anchor = anchor;
         this.cursor = cursor;
+    }
+    
+    public reset(pos: number) {
+        this.anchor = pos;
+        this.cursor = pos;
+    }
+    public updateCursor(pos: number) {
+        this.cursor = pos;
     }
 
     static fromRange(start: number, end: number): Selection {
@@ -16,6 +24,10 @@ export class Selection {
 
     static fromAnchorAndCursor(anchor: number, cursor: number): Selection {
         return new Selection(anchor, cursor);
+    }
+    
+    withCursor(cursor: number): Selection {
+        return new Selection(this.anchor!, cursor);
     }
 
     static empty(offset: number): Selection {
@@ -40,17 +52,17 @@ export class Selection {
     }
 
     public sorted(): [number, number] {
-        return this.anchor <= this.cursor 
-            ? [this.anchor, this.cursor] 
-            : [this.cursor, this.anchor];
+        return this.anchor! <= this.cursor! 
+            ? [this.anchor!, this.cursor!] 
+            : [this.cursor!, this.anchor!];
     }
 
     public get start(): number {
-        return Math.min(this.anchor, this.cursor);
+        return Math.min(this.anchor!, this.cursor!);
     }
 
     public get end(): number {
-        return Math.max(this.anchor, this.cursor);
+        return Math.max(this.anchor!, this.cursor!);
     }
 
     public min(): number {
@@ -63,27 +75,6 @@ export class Selection {
 
     public length(): number {
         return this.end - this.start;
-    }
-
-    public isForward(): boolean {
-        return this.cursor >= this.anchor;
-    }
-
-    public isBackward(): boolean {
-        return this.cursor < this.anchor;
-    }
-
-    public moveCursor(newCursor: number): Selection {
-        return new Selection(this.anchor, newCursor);
-    }
-
-    public moveAnchor(newAnchor: number): Selection {
-        return new Selection(newAnchor, this.cursor);
-    }
-
-    public collapse(toAnchor: boolean = false): Selection {
-        const offset = toAnchor ? this.anchor : this.cursor;
-        return Selection.empty(offset);
     }
 
     public equals(other: Selection | null): boolean {
@@ -168,12 +159,6 @@ export function resolveAbsoluteOffset(node: Node, nodeOffset: number): Pos | nul
     return { row: lineDiv.lineNumber, col: offset }; 
 }
 
-export function selectionAnchor(selection: Selection | null, cursor: number): number {
-    // Returns the anchor position of the selection
-    if (selection == null) return cursor;
-    return selection.anchor;
-}
-
 
 interface DOMPosition {
     node: Node;
@@ -244,110 +229,6 @@ export function setSelectionFromOffsets(
     sel.removeAllRanges();
     sel.addRange(range);
 }
-
-// export function setSelectionFromOffsets(
-//     selection: Selection, lines: ExtendedHTMLDivElement[]
-// ) {
-//     if (lines.length === 0) return;
-
-//     const [startOffset, endOffset] = selection.sorted(); // DOM needs sorted
-
-//     console.log('setSelectionFromOffsets', startOffset, endOffset);
-
-//     const startPos = resolveDOMPosition(startOffset, lines);
-//     const endPos = resolveDOMPosition(endOffset, lines);
-//     if (!startPos || !endPos) return;
-
-//     const range = document.createRange();
-//     const sel = window.getSelection();
-//     if (!sel) return;
-
-//     range.setStart(startPos.node, startPos.offset);
-//     range.setEnd(endPos.node, endPos.offset);
-
-//     sel.removeAllRanges();
-//     sel.addRange(range);
-// }
-
-
-
-
-// interface Selection  {
-//     from: { row: number, col: number },
-//     to: { row: number, col: number },
-// };
-
-// export function getSelection(element): Selection | null {
-//     var selection = element.getSelection();
-//     if (selection.rangeCount === 0) return null; // Check if there's no selection
-//     var range = selection.getRangeAt(0);
-//     if (range.isCollapsed) return null;
-//     var startNode = range.startContainer;
-//     var endNode = range.endContainer;
-//     // console.log({startNode, endNode})
-
-//     // Calculate start position
-//     let startLineDiv = startNode.parentNode.parentNode;
-//     let startLine = 0;
-//     let startColumn = 0;
-
-//     if (startLineDiv.tagName == "DIV" && startLineDiv.classList && startLineDiv.classList.contains("line")) {
-//         startLine = startLineDiv.lineNumber;
-
-//         var startCharacter = range.startOffset;
-//         let startC = 0;
-//         let startChunks = Array.from(startLineDiv.children);
-
-//         for (let chunkNode of startChunks) {
-//             if (chunkNode == startNode.parentNode) { break }  // found node
-//             // @ts-ignore
-//             startC += chunkNode.textContent.length;
-//         }
-
-//         startCharacter += startC;
-//         startColumn = startCharacter;
-//     }
-
-//     // Calculate end position
-//     let endLineDiv = endNode.parentNode.parentNode;
-//     let endLine = 0;
-//     let endColumn = 0;
-
-//     if (endLineDiv.tagName == "DIV" && endLineDiv.classList && endLineDiv.classList.contains("line")) {
-//         endLine = endLineDiv.lineNumber;
-
-//         var endCharacter = range.endOffset;
-//         let endC = 0;
-//         let endChunks = Array.from(endLineDiv.children);
-
-//         for (let chunkNode of endChunks) {
-//             if (chunkNode == endNode.parentNode) { break }  // found node
-//             // @ts-ignore
-//             endC += chunkNode.textContent.length;
-//         }
-
-//         endCharacter += endC;
-//         endColumn = endCharacter;
-//     } else {
-        // // corner case, whole row selected
-        // if (endNode.tagName == "DIV" && endNode.classList && endNode.classList.contains("line")) {
-        //     endLine = endNode.previousSibling.lineNumber;
-        //     // @ts-ignore
-        //     endColumn = Array.from(endNode.previousSibling.children).map(node => node.textContent).join('').length;
-        // }
-//     }
-
-//     if (startLine == 0 && startColumn == 0 && endLine == 0 && endColumn == 0) {
-//         // console.log('no selection');
-//         return null;
-//     }
-
-//     return {
-//         from: { row: startLine, col: startColumn },
-//         to: { row: endLine, col: endColumn }
-//     };
-// }
-
 
 function findNodeAndOffset(lineDiv: AnycodeLine, targetOffset: number) {
     let currentOffset = targetOffset;
