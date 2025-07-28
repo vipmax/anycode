@@ -1,0 +1,62 @@
+.anyeditor {
+  display: flex;
+  height: 100%;
+  overflow: auto;
+  font-family: monospace;
+  background: #1e1e1e;
+  color: #fff;
+  white-space: pre;
+  outline: none;
+}
+
+.anyeditor .buttons {
+  position: sticky;
+  left: 0;
+  user-select: none;
+  pointer-events: auto;
+  text-align: center;
+  background: inherit;
+  min-width: 32px;
+}
+.anyeditor .buttons div {
+  background: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.anyeditor .gutter {
+  position: sticky;
+  left: 32px;
+  user-select: none;
+  pointer-events: none;
+  background: inherit;
+  min-width: 48px;
+  text-align: center;
+  color: #888;
+}
+.anyeditor .gutter .ln {
+  background: inherit;
+}
+
+.anyeditor .code {
+  flex: 1;
+  padding-left: 10px;
+  font-size: 14px;
+  line-height: 20px;
+  outline: none;
+}
+.anyeditor .code .line {
+}
+
+.has-error::after {
+  content: attr(data-error);
+  color: #ff6b6b;
+  font-size: 12px;
+  margin-left: 20px;
+  border-radius: 4px;
+  padding: 0 4px;
+  vertical-align: middle;
+  line-height: 1;
+  float: right;
+}

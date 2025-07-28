@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Anycode-like Virtual Editor</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #1e1e1e;
+      color: white;
+      font-family: monospace;
+    }
+
+    .editor-container {
+      display: flex;
+      height: 100vh;
+      overflow: auto;
+      font-size: 14px;
+    }
+
+    .run-column,
+    .gutter-column {
+      position: sticky;
+      top: 0;
+      background: #1e1e1e;
+      z-index: 10;
+      user-select: none;
+    }
+
+    .run-column {
+      width: 32px;
+      min-width: 32px;
+      max-width: 32px;
+      left: 0;
+      text-align: center;
+    }
+
+    .gutter-column {
+      width: 48px;
+      min-width: 48px;
+      max-width: 48px;
+      left: 32px;
+      color: gray;
+      text-align: right;
+      padding-right: 4px;
+    }
+
+    .code-column {
+      flex: 1;
+      padding-left: 10px;
+      white-space: pre;
+    }
+
+    .line {
+      height: 20px;
+      display: flex;
+      align-items: center;
+      font-size: 14px;
+      line-height: 20px;
+    }
+
+    .gutter-line {
+      justify-content: flex-end;
+      color: #888;
+    }
+
+    .run-line {
+      justify-content: center;
+    }
+
+    .code-line {
+      white-space: pre;
+      margin-left: 10px;
+    }
+
+    .run-btn {
+      background: transparent;
+      border: none;
+      color: #888;
+      cursor: pointer;
+      font-size: 16px;
+      padding: 0;
+    }
+
+    .spacer {
+      height: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="editor-container" id="editor">
+    <div class="run-column" id="runColumn"></div>
+    <div class="gutter-column" id="gutterColumn"></div>
+    <div class="code-column" id="codeContent"></div>
+  </div>
+
+  <script>
+    const totalLines = 1000;
+    const lineHeight = 20;
+    const buffer = 20;
+    const runButtonLines = new Set([1, 6, 20, 45, 100]);
+
+    const runColumn = document.getElementById('runColumn');
+    const gutterColumn = document.getElementById('gutterColumn');
+    const codeContent = document.getElementById('codeContent');
+    const container = document.getElementById('editor');
+
+    function createSpacer(height) {
+      const div = document.createElement('div');
+      div.className = 'spacer';
+      div.style.height = `${height}px`;
+      return div;
+    }
+
+    function createLineNumber(i) {
+      const div = document.createElement('div');
+      div.className = 'gutter-line line';
+      div.textContent = (i + 1).toString().padStart(2, ' ');
+      return div;
+    }
+
+    function createRunButtonLine(i) {
+      const div = document.createElement('div');
+      div.className = 'run-line line';
+      if (runButtonLines.has(i)) {
+        const btn = document.createElement('button');
+        btn.className = 'run-btn';
+        btn.textContent = '▶';
+        btn.title = `Run line ${i + 1}`;
+        btn.onclick = () => alert(`Run line ${i + 1}`);
+        div.appendChild(btn);
+      }
+      return div;
+    }
+
+    function createLineWrapper(text) {
+      const div = document.createElement('div');
+      div.className = 'code-line line';
+      div.textContent = text;
+      return div;
+    }
+
+    function render() {
+      const scrollTop = container.scrollTop;
+      const viewHeight = container.clientHeight;
+
+      const visibleCount = Math.ceil(viewHeight / lineHeight);
+      const startLine = Math.max(0, Math.floor(scrollTop / lineHeight) - buffer);
+      const endLine = Math.min(totalLines, startLine + visibleCount + buffer * 2);
+
+      const paddingTop = startLine * lineHeight;
+      const paddingBottom = (totalLines - endLine) * lineHeight;
+
+      // Run buttons
+      const runFrag = document.createDocumentFragment();
+      runFrag.appendChild(createSpacer(paddingTop));
+      for (let i = startLine; i < endLine; i++) {
+        runFrag.appendChild(createRunButtonLine(i));
+      }
+      runFrag.appendChild(createSpacer(paddingBottom));
+      runColumn.replaceChildren(runFrag);
+
+      // Gutter
+      const gutterFrag = document.createDocumentFragment();
+      gutterFrag.appendChild(createSpacer(paddingTop));
+      for (let i = startLine; i < endLine; i++) {
+        gutterFrag.appendChild(createLineNumber(i));
+      }
+      gutterFrag.appendChild(createSpacer(paddingBottom));
+      gutterColumn.replaceChildren(gutterFrag);
+
+      // Code lines
+      const codeFrag = document.createDocumentFragment();
+      codeFrag.appendChild(createSpacer(paddingTop));
+      for (let i = startLine; i < endLine; i++) {
+        const fakeCode = `console.log("Line ${i + 1}")`;
+        codeFrag.appendChild(createLineWrapper(fakeCode));
+      }
+      codeFrag.appendChild(createSpacer(paddingBottom));
+      codeContent.replaceChildren(codeFrag);
+
+      const fullHeight = codeContent.scrollHeight;
+      runColumn.style.height = `${fullHeight}px`;
+      gutterColumn.style.height = `${fullHeight}px`;
+      codeContent.style.height = `${fullHeight}px`;
+    }
+
+    container.addEventListener('scroll', () => {
+      requestAnimationFrame(render);
+    });
+
+    render();
+  </script>
+</body>
+</html>
